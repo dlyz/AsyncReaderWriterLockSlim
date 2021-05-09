@@ -67,11 +67,6 @@ namespace DLyz.Threading
 			Options options = default
 			)
 		{
-			if (options.ElevatedWriters && options.ElevatedReaders)
-			{
-				throw new ArgumentException("Writers and readers can not both be elevated.");
-			}
-
 			if (options.ElevatedWriters)
 			{
 				_elevatedKind = ElevatedKind.Writers;

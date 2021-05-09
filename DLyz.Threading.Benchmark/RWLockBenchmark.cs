@@ -11,7 +11,9 @@ using System.Threading.Tasks;
 namespace DLyz.Threading.Benchmark
 {
 	[MemoryDiagnoser]
+#if !NET6_0_OR_GREATER
 	[ThreadingDiagnoser]
+#endif
 	public class RWLockBenchmark
 	{
 		public static void RunManual(double writerProb)
@@ -49,10 +51,12 @@ namespace DLyz.Threading.Benchmark
 			yield return CreateWorkers(new AdapterAsyncRWLockSlim(new AsyncReaderWriterLockSlim(new() { RunContinuationsAsynchronously = false })), workers, "ARWLockSlim-SyncCont");
 
 			yield return CreateWorkers<AdapterOldAsyncRWLock, AdapterOldAsyncRWLock.State>(new AdapterOldAsyncRWLock(), workers, "OldAsyncRWLock");
-			yield return CreateWorkers(new AdapterAsyncRWLockSlim1(), workers, "ARWLockSlim1");
-			yield return CreateWorkers(new AdapterAsyncRWLockSlim1(new AsyncReaderWriterLockSlim1(runContinuationsAsynchronously: false)), workers, "ARWLockSlim1-SyncCont");
+			yield return CreateWorkers(new AdapterAsyncRWLockSlim1(), workers, "ARWLockS1");
+			yield return CreateWorkers(new AdapterAsyncRWLockSlim1(new AsyncReaderWriterLockSlim1(runContinuationsAsynchronously: false)), workers, "ARWLockS1-SyncCont");
 
 			yield return CreateWorkers<AdapterVSAsyncRWLock, AdapterVSAsyncRWLock.State>(new AdapterVSAsyncRWLock(), workers, "VSAsyncRWLock");
+			yield return CreateWorkers<AdapterNitoAsyncRWLock, AdapterNitoAsyncRWLock.State>(new AdapterNitoAsyncRWLock(), workers, "NitoAsyncRWLock");
+
 			yield return CreateWorkers(new AdapterMonitor(), workers, "Monitor");
 			yield return CreateWorkers(new AdapterRWLockSlim(), workers, "RWLockSlim");
 			yield return CreateWorkers(new AdapterSemaphoreSlim(), workers, "SemaphoreSlim");
@@ -378,19 +382,15 @@ namespace DLyz.Threading.Benchmark
 				public AsyncReaderWriterLock.Releaser Releaser { get; set; }
 			}
 
-			private readonly AsyncReaderWriterLock _l;
+#pragma warning disable VSTHRD012 // Provide JoinableTaskFactory where allowed
+			private readonly AsyncReaderWriterLock _l = new AsyncReaderWriterLock(captureDiagnostics: false);
+#pragma warning restore VSTHRD012 // Provide JoinableTaskFactory where allowed
 
 
 			public bool ReaderSupported => true;
 
 			public bool TrySupported => false;
 
-			public AdapterVSAsyncRWLock(AsyncReaderWriterLock? l = null)
-			{
-#pragma warning disable VSTHRD012 // Provide JoinableTaskFactory where allowed
-				_l = l ?? new AsyncReaderWriterLock(captureDiagnostics: false);
-#pragma warning restore VSTHRD012 // Provide JoinableTaskFactory where allowed
-			}
 
 			public async ValueTask AcquireReaderLockAsync(State state, CancellationToken cancellationToken = default)
 			{
@@ -423,6 +423,53 @@ namespace DLyz.Threading.Benchmark
 			}
 		}
 
+
+
+		internal class AdapterNitoAsyncRWLock : IStatefulLock<AdapterNitoAsyncRWLock.State>
+		{
+			public class State
+			{
+				public IDisposable? Releaser { get; set; }
+			}
+
+			private readonly Nito.AsyncEx.AsyncReaderWriterLock _l = new Nito.AsyncEx.AsyncReaderWriterLock();
+
+
+			public bool ReaderSupported => true;
+
+			public bool TrySupported => false;
+
+
+			public async ValueTask AcquireReaderLockAsync(State state, CancellationToken cancellationToken = default)
+			{
+				state.Releaser = await _l.ReaderLockAsync(cancellationToken);
+			}
+
+			public async ValueTask AcquireWriterLockAsync(State state, CancellationToken cancellationToken = default)
+			{
+				state.Releaser = await _l.WriterLockAsync(cancellationToken);
+			}
+
+			public void ReleaseReaderLock(State state)
+			{
+				state.Releaser!.Dispose();
+			}
+
+			public void ReleaseWriterLock(State state)
+			{
+				state.Releaser!.Dispose();
+			}
+
+			public bool TryAcquireReaderLock(State state)
+			{
+				throw new NotSupportedException();
+			}
+
+			public bool TryAcquireWriterLock(State state)
+			{
+				throw new NotSupportedException();
+			}
+		}
 
 		internal class AdapterAsyncRWLockSlim : ILock
 		{
